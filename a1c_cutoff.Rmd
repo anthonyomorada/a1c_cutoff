@@ -1,0 +1,260 @@
+---
+title: "A1C Cuttoff"
+author: "Anthony Morada"
+date: "1/7/2021"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+# Collecting and Cleaning Data
+```{r setup}
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tableone)
+library(finalfit)
+
+
+#For TableOne
+kableone <- function(x, ...) {
+  capture.output(x <- print(x))
+  knitr::kable(x, ...)
+}
+
+df <- read_xls("~/THE GUTHRIE CLINIC/Foundation Research Projects - A1C Cut-Point for Joint Arthroplasty/Data/Ortho_Morada.xls", sheet = 1)  %>%
+  clean_names() %>%
+  filter(!is.na(b_number)) %>%
+  mutate(patients_readmitted_in_30_days=as.character(patients_readmitted_in_30_days)) %>%
+  mutate(mortality_in_30_days=as.character(mortality_in_30_days)) %>%
+  mutate(return_to_ed_within_7_days=as.character(return_to_ed_within_7_days)) %>%
+  mutate(return_to_ed_within_30_days=as.character(return_to_ed_within_30_days)) %>%
+  mutate(unplanned_returns=as.character(unplanned_returns)) %>%
+  mutate(return_to_or_in_30=as.character(return_to_or_in_30)) %>%
+  mutate(readmissions_in_90_days=as.character(readmissions_in_90_days)) %>%
+  mutate(htn=as.character(htn)) %>%
+  mutate(chf=as.character(chf)) %>%
+  mutate(copd=as.character(copd)) %>%
+  mutate(diabetes=as.character(diabetes)) %>%
+  mutate(dialysis=as.character(dialysis)) %>%
+  mutate(thyroid_disease=as.character(thyroid_disease)) %>%
+  mutate(rheumatoid_arthritis=as.character(rheumatoid_arthritis)) %>%
+  mutate(hiv_aids=as.character(hiv_aids)) %>%
+  mutate(steroid_use=as.character(steroid_use)) %>%
+  mutate(bleeding_disorders=as.character(bleeding_disorders)) %>%
+  mutate(renal_failure=as.character(renal_failure)) %>%
+  mutate(hypoglycemic=as.character(hypoglycemic)) %>%
+  mutate(a1c_date=as.POSIXct(a1c_date, format="%m/%d/%Y", tz = "UTC")) %>%
+  mutate(glucose_date=as.POSIXct(glucose_date, format="%m/%d/%Y", tz = "UTC")) %>%
+  mutate(hemoglobin_date=as.POSIXct(hemoglobin_date, format="%m/%d/%Y", tz = "UTC")) %>%
+  mutate(wbc_date=as.POSIXct(wbc_date, format="%m/%d/%Y", tz = "UTC")) %>%
+  mutate(albumin_date=as.POSIXct(albumin_date, format="%m/%d/%Y", tz = "UTC")) %>%
+  mutate(last_glucose_prior=as.numeric(last_glucose_prior)) %>%
+  mutate(last_hemoglobin_prior=as.numeric(last_hemoglobin_prior)) %>%
+  mutate(last_wbc_prior=as.numeric(last_wbc_prior)) %>%
+  mutate(last_albumin_prior=as.numeric(last_albumin_prior)) %>%
+  mutate(last_a1c_prior = gsub("%", "", last_a1c_prior)) %>%
+  mutate(last_a1c_prior = gsub("  - Keuka Family Practice- see scanned doc.", "", last_a1c_prior)) %>%
+  mutate(last_a1c_prior=as.numeric(last_a1c_prior)) 
+
+
+comp <- read_xls("~/THE GUTHRIE CLINIC/Foundation Research Projects - A1C Cut-Point for Joint Arthroplasty/Data/Ortho_Morada.xls",sheet = 2) %>%
+  clean_names() 
+
+
+
+```   
+
+The data contains `r nrow(df)` cases with `r length(unique(df$b_number))` unique patients.  
+
+```{r clean and adding variables}
+
+#order by surgery date
+df <- df[order(df$surgery_date),]
+
+#creating n_surg column
+df$n_surg <- 0
+for(i in unique(df$b_number)){
+  if(sum(df$b_number == i) == 1){
+    df[df$b_number==i,]$n_surg <- 1
+  } else if (sum(df$b_number == i) > 1) {
+    for (j in 1:nrow(df[df$b_number==i,])) {
+      df[df$b_number==i,][j,]$n_surg <- j
+    }
+  }
+}
+
+#creating insulin use
+df$insulin_use <- !is.na(df$insulin)
+
+
+#creating immunosupressant use
+df$immunosupressant_use <- df$immunosupressant < df$surgery_date
+df$immunosupressant_use[is.na(df$immunosupressant_use)] <- FALSE
+
+
+# Making all character columns into factors
+df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)],  as.factor)
+# Making all logical columns into factors
+df[sapply(df, is.logical)] <- lapply(df[sapply(df, is.logical)],  as.factor)
+
+
+#removing variables have only one factor
+onelvl_vars<- c()
+factor_vars <-  colnames(df[,sapply(df, function(x) is.factor(x))])
+for(i in 1:length(factor_vars)){
+  if(nlevels(df[,factor_vars[i]][[1]]) < 2){
+    onelvl_vars[i] <- factor_vars[i]
+  }
+}
+onelvl_vars <- onelvl_vars[!is.na(onelvl_vars)]
+
+df <- select(df, -onelvl_vars)
+
+```
+
+The following variables were removed because they only contained one factor level: `r onelvl_vars` 
+
+```{r categorizing variables}
+# independent variables
+ind_vars <- c("n_surg","gender","age", "bmi", "race","asa_score", "los", "operation_length", "htn", "chf", "copd", "thyroid_disease", "rheumatoid_arthritis", "hiv_aids", "steroid_use", "bleeding_disorders", "renal_failure", "immunosupressant_use", "insulin_use", "last_a1c_prior",  "last_glucose_prior", "last_hemoglobin_prior","last_wbc_prior","last_albumin_prior")
+#"proc",
+
+# dependent variables (this is a wip as there are more than this)
+d_vars <- c("los", "patients_readmitted_in_30_days","mortality_in_30_days", "return_to_ed_within_7_days", "return_to_ed_within_30_days", "return_to_or_in_30", "readmissions_in_90_days")
+
+#creating cont_vars
+cont_vars <- colnames(df[,sapply(df, function(x) is.numeric(x))])
+#creating non normal variables by Shapiro test < 0.05 = non normal
+nonnorm_vars <- c()
+for(i in 1:length(cont_vars)){
+  if(shapiro.test(df[,cont_vars[i]][[1]])$p.value <= 0.05){
+    nonnorm_vars[i] <- cont_vars[i]
+  }
+}
+nonnorm_vars <- nonnorm_vars[!is.na(nonnorm_vars)]
+
+
+```
+
+# Data Analysis  
+```{r tables, echo=FALSE, message=FALSE, warning=FALSE}
+#independent vars
+kableone(print(
+  CreateTableOne(vars = ind_vars, data = df), 
+  nonnormal = nonnorm_vars,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+
+#dependent vars
+kableone(print(
+  CreateTableOne(vars = d_vars, data = df), 
+  nonnormal = nonnorm_vars,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+
+```
+
+```{r workplace cleanup}
+rm(i,j)
+```
+
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results='asis'}
+# removing los
+cat_d_vars <- d_vars[!d_vars %in% c("los", "readmissions_in_90_days")]  
+
+for (i in 1:length(cat_d_vars)){
+  df.cat <- select(df, all_of(ind_vars) | all_of(cat_d_vars[i]))
+  df.cat <- na.omit(df.cat)
+  dep_vars <- cat_d_vars[i]
+  
+  
+  #FINDING CATEGORICAL VARIABLES
+  cat_vars <-  colnames(df.cat[,sapply(df.cat, function(x) is.factor(x))])
+  exact_vars <- NULL
+  for(j in 1:length(cat_vars)){
+    if (sum(chisq.test(table(df.cat[,cat_vars[j]][[1]], df.cat[,dep_vars][[1]]))$expected < 5)){
+      exact_vars[j] <- cat_vars[j]
+      }
+    }
+  exact_vars <- exact_vars[!is.na(exact_vars)]
+  
+  print(dep_vars)
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+
+  print(kableone(print(
+  CreateTableOne(data = df.cat, factorVars = cat_vars, strata = dep_vars, argsExact = list(workspace = 2 * 10^5, simulate.p.value = TRUE)),
+  nonnormal = nonnorm_vars, 
+  exact = exact_vars, 
+  showAllLevels = TRUE, 
+  formatOptions = list(big.mark = ","), 
+  quote = FALSE, 
+  noSpaces = TRUE,
+  missing = TRUE
+  )))
+  
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+
+  
+# FULL MODEL
+  form <- as.formula(paste(dep_vars ,"~", paste0(ind_vars, collapse = " + ")))
+  mod <- glm(formula = form, data = df.cat, family = binomial) 
+  print(summary(mod))
+
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+
+  print(kableone(print(cbind(exp(cbind(OR = coef(mod), confint.default(mod))), P=summary(mod)$coefficients[,4]))))
+  
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+
+  
+  
+# STEP AIC
+  form <- as.formula(paste(dep_vars ,"~", paste0(ind_vars, collapse = " + ")))
+  mod2 <- glm(formula = form, data = df.cat, family = binomial) %>%
+    MASS::stepAIC(trace = FALSE, direction = "both")
+  print(summary(mod2))
+  
+  
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+  
+  print(kableone(print(cbind(exp(cbind(OR = coef(mod2), confint.default(mod2))), P=summary(mod2)$coefficients[,4]))))
+  
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+  
+  print(AIC(mod))
+  print(AIC(mod2)) # Smaller -> better
+  print(BIC(mod))
+  print(BIC(mod2)) # Smaller -> better
+
+  # Best BIC and AIC models
+  modBIC <- MASS::stepAIC(mod, k = log(nrow(df.cat)), trace=FALSE,direction="both")
+  modAIC <- MASS::stepAIC(mod, k = 2, trace=FALSE, direction = "both")
+  car::compareCoefs(modBIC, modAIC)
+  summary(modBIC)
+  summary(modAIC)
+
+  
+  cat('\n\n<!-- -->\n\n')
+  cat('\n\n<!-- -->\n\n')
+}
+
+
+
+```
