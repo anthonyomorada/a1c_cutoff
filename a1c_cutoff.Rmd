@@ -62,7 +62,7 @@ df <- read_xls("~/THE GUTHRIE CLINIC/Foundation Research Projects - A1C Cut-Poin
   mutate(last_albumin_prior=as.numeric(last_albumin_prior)) %>%
   mutate(last_a1c_prior = gsub("%", "", last_a1c_prior)) %>%
   mutate(last_a1c_prior = gsub("  - Keuka Family Practice- see scanned doc.", "", last_a1c_prior)) %>%
-  mutate(last_a1c_prior=as.numeric(last_a1c_prior)) 
+  mutate(last_a1c_prior = as.numeric(last_a1c_prior)) 
 
 
 comp <- read_xls("~/THE GUTHRIE CLINIC/Foundation Research Projects - A1C Cut-Point for Joint Arthroplasty/Data/Ortho_Morada.xls",sheet = 2) %>%
@@ -256,5 +256,48 @@ for (i in 1:length(cat_d_vars)){
 }
 
 
+
+```
+
+
+# AIC Distribution
+
+```{r}
+
+
+library(dplyr)
+library(ggplot2)
+
+print(summary(df$last_a1c_prior))
+
+df %>%
+ ggplot() +
+ aes(x = last_a1c_prior) +
+ geom_histogram(bins = 30L, fill = "#0c4c8a") +
+ theme_classic()
+
+df %>%
+ ggplot() +
+ aes(x = patients_readmitted_in_30_days, y = last_a1c_prior) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_classic()
+
+df %>%
+ ggplot() +
+ aes(x = return_to_ed_within_30_days, y = last_a1c_prior) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_classic()
+
+df %>%
+ ggplot() +
+ aes(x = return_to_or_in_30, y = last_a1c_prior) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_classic()
+
+df %>%
+ ggplot() +
+ aes(x = mortality_in_30_days, y = last_a1c_prior) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_classic()
 
 ```
